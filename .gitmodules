@@ -1,0 +1,4 @@
+[submodule "pytorch-3dunet"]
+	path = pytorch-3dunet
+	url = https://github.com/tim-vdl/pytorch-3dunet
+	branch = pacmap
