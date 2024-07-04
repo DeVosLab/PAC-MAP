@@ -9,10 +9,17 @@ A preprint of the paper will be available shortly.
 The PAC-MAP workflow. Proximity adjusted centroid probability maps, i.e., the target volumes for model training, are created from images with annotated nuclei centroids by positioning Gaussian kernels at the centroid position. Each Gaussian kernel’s amplitude and standard deviation is equal to the proximity to the nearest neighbor and the average nuclei radius estimated for the dataset, respectively. A neural network is then trained by performing weak supervised pretraining with annotations from a baseline method and finetuning on manual annotations. In inference, the trained model predicts proximity adjusted centroid probability maps from which candidate centroids are extracted as local maxima. Candidates are accepted or rejected depending on the correspondence between the observed and predicted proximity to other centroids.
 
 ## Installation
-Clone the repository, navigate into it, and install the required packages using the following command:
+Clone the repository and navigate into it. Note that the repository contains submodules, so make sure to clone it with the `--recurse-submodules` flag.
+```bash
+git clone --recurse-submodules https://github.com/DeVosLab/PAC-MAP.git 
+cd PAC-MAP
+```
+
+Install the required packages using the following command:
 ```bash
 conda env create -f environment.yml
 ```
+
 Activate the environment:
 ```bash
 conda activate pacmap_py3.9
