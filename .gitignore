@@ -3,7 +3,6 @@ data/
 *.tif
 *.csv
 *.npy
-*.png
 
 # Python generated files
 .env
