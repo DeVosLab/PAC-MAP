@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 
 import importlib
-pytorch3dunet = importlib.import_module('..pytorch-3dunet.pytorch3dunet.unet3d.model')
+pytorch3dunet = importlib.import_module('pytorch-3dunet.pytorch3dunet.unet3d.model')
 
 from .utils import squeeze_to_ndim, unsqueeze_to_ndim, merge_close_points
 from .train import get_data, CentroidDataset, create_model

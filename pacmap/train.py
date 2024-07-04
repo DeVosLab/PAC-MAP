@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from pytorch_msssim import ms_ssim
 
 import importlib
-pytorch3dunet = importlib.import_module('..pytorch-3dunet.pytorch3dunet.unet3d.model')
+pytorch3dunet = importlib.import_module('pytorch-3dunet.pytorch3dunet.unet3d.model')
 
 from .utils import (unsqueeze_to_ndim, seed_worker, set_random_seeds,
                    RandomFlip3D, RandomRescaledCrop3D, AugmentBrightness,

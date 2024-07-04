@@ -178,8 +178,10 @@ SAVE_PREDS = True
 CHECK_BATCHES = False
 GPU_ID = 0
 
-config.update({
-    "pred_model": {
+seeds = [0, 1, 2]
+config["pred_model"] = {}
+for SEED in seeds:
+    config["pred_model"].update({
         f"cmap-{SEED}": {
             "input_path": INPUT_PATH,
             "output_path": f"{OUTPUT_PATH_BASE}/cmap-{SEED}",
@@ -235,8 +237,7 @@ config.update({
             "save_preds": SAVE_PREDS,
             "check_batches": CHECK_BATCHES
         },
-    }
-})
+    })
 
 # Performance evaluation
 TRUE_PATH = f"{dataset_name}/test/masks"
@@ -265,6 +266,7 @@ config.update({
 })
 
 seeds = [0, 1, 2]
+config["performance"] = {}
 for SEED in seeds:
     config["performance"].update({
         f"numorph-{SEED}": {

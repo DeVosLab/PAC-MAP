@@ -65,8 +65,8 @@ config.update({
 })
 
 # Train nuclei centroid prediction model
-config["train"] = {}
 seeds = [0, 1, 2]
+config["train"] = {}
 for SEED in seeds:
     config["train"].update({
         f"scratch-{SEED}": {

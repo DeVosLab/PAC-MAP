@@ -120,53 +120,53 @@ PRETRAIN_DATASET = "LN18-RED"
 
 seeds = [0, 1, 2]
 model_types = ["scratch", "finetuned"]
+config["train"] = {}
 for SEED in seeds:
     for MODEL_TYPE in model_types:
         cmap_pretrained = f"{PRETRAIN_DATASET}/models/pretrain-{SEED}" if MODEL_TYPE == "finetuned" else None
         pacmap_pretrained = f"{PRETRAIN_DATASET}/models/pretrain-{SEED}-d" if MODEL_TYPE == "finetuned" else None
-        config.update({
-            "train": {
-                f"cmap-{MODEL_TYPE}-{SEED}": {
-                    "input_path": INPUT_PATH,
-                    "target_path": f"{dataset_name}/train/targets_cmap/targets",
-                    "output_path": f"{dataset_name}/models/cmap-{MODEL_TYPE}-{SEED}",
-                    "pretrained": cmap_pretrained,
-                    "gpu_id": GPU_ID,
-                    "random_seed": SEED,
-                    "final_sigmoid": True,
-                    "normalize_targets": True,
-                    "split": SPLIT,
-                    "batch_size": BATCH_SIZE,
-                    "num_epochs": NUM_EPOCHS,
-                    "lr": LR,
-                    "model_type": MODEL_ARCH,
-                    "loss": LOSS,
-                    "patience": PATIENCE,
-                    "f_maps": F_MAPS,
-                    "check_batches": CHECK_BATCHES,
-                    "augment_rescale_p": AUGMENT_RESCALE_P,
-                },
-                f"pacmap-{MODEL_TYPE}-{SEED}": {
-                    "input_path": INPUT_PATH,
-                    "target_path": f"manual_annotation/{dataset_name}/train/targets_pacmap/targets",
-                    "output_path": f"{dataset_name}/models/pacmap-{MODEL_TYPE}-{SEED}",
-                    "pretrained": pacmap_pretrained,
-                    "gpu_id": GPU_ID,
-                    "random_seed": SEED,
-                    "final_sigmoid": False,
-                    "normalize_targets": False,
-                    "split": SPLIT,
-                    "batch_size": BATCH_SIZE,
-                    "num_epochs": NUM_EPOCHS,
-                    "lr": LR,
-                    "model_type": MODEL_ARCH,
-                    "loss": LOSS,
-                    "patience": PATIENCE,
-                    "f_maps": F_MAPS,
-                    "check_batches": CHECK_BATCHES,
-                    "augment_rescale_p": AUGMENT_RESCALE_P,
-                },
-            }
+
+        config["train"].update({
+            f"cmap-{MODEL_TYPE}-{SEED}": {
+                "input_path": INPUT_PATH,
+                "target_path": f"{dataset_name}/train/targets_cmap/targets",
+                "output_path": f"{dataset_name}/models/cmap-{MODEL_TYPE}-{SEED}",
+                "pretrained": cmap_pretrained,
+                "gpu_id": GPU_ID,
+                "random_seed": SEED,
+                "final_sigmoid": True,
+                "normalize_targets": True,
+                "split": SPLIT,
+                "batch_size": BATCH_SIZE,
+                "num_epochs": NUM_EPOCHS,
+                "lr": LR,
+                "model_type": MODEL_ARCH,
+                "loss": LOSS,
+                "patience": PATIENCE,
+                "f_maps": F_MAPS,
+                "check_batches": CHECK_BATCHES,
+                "augment_rescale_p": AUGMENT_RESCALE_P,
+            },
+            f"pacmap-{MODEL_TYPE}-{SEED}": {
+                "input_path": INPUT_PATH,
+                "target_path": f"manual_annotation/{dataset_name}/train/targets_pacmap/targets",
+                "output_path": f"{dataset_name}/models/pacmap-{MODEL_TYPE}-{SEED}",
+                "pretrained": pacmap_pretrained,
+                "gpu_id": GPU_ID,
+                "random_seed": SEED,
+                "final_sigmoid": False,
+                "normalize_targets": False,
+                "split": SPLIT,
+                "batch_size": BATCH_SIZE,
+                "num_epochs": NUM_EPOCHS,
+                "lr": LR,
+                "model_type": MODEL_ARCH,
+                "loss": LOSS,
+                "patience": PATIENCE,
+                "f_maps": F_MAPS,
+                "check_batches": CHECK_BATCHES,
+                "augment_rescale_p": AUGMENT_RESCALE_P,
+            },
         })
 
 # Prediction configs
@@ -190,6 +190,7 @@ config['pred_model'] = {}
 for SEED in seeds:
     for MODEL_TYPE in model_types:
         MODEL_PATH_BASE = f"{PRETRAIN_DATASET}/models" if MODEL_TYPE == "pretrained" else f"{dataset_name}/models"
+
         config['pred_model'].update({
             f"cmap-{MODEL_TYPE}-{SEED}":{
                 "input_path":INPUT_PATH,
@@ -274,6 +275,7 @@ config.update({
 
 model_types = ["pretrained", "scratch" "finetuned"]
 seeds = [0, 1, 2]
+config["performance"] = {}
 for MODEL_TYPE in model_types:
     for SEED in seeds:
         config["performance"].update({
