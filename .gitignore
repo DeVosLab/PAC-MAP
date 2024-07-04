@@ -1,0 +1,15 @@
+# Data files
+data/
+*.tif
+*.csv
+*.npy
+*.png
+
+# Python generated files
+.env
+*__pycache__/
+
+# OS generated files
+.DS_Store
+
+
