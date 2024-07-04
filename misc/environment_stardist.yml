@@ -1,4 +1,4 @@
-name: /data/home/tvdlooverbosch/miniconda3/envs/stardist
+name: stardist_py3.9
 channels:
   - defaults
   - conda-forge
