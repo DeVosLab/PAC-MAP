@@ -2,7 +2,10 @@
 
 PAC-MAP is a novel and deep learning-based method for nuclei detection in 3D light microscopy images of (dense) 3D cell systems with a nuclear-specific stain. It works by predicting proximity adjusted centroid probability maps in which nuclei locations are found as local maxima.
 
-A preprint of the paper will be available shortly.
+Please cite our preprint if you use this code or method in your research:
+
+Van De Looverbosch, Tim, Sarah De Beuckeleer, Frederik De Smet, Jan Sijbers, and Winnok H. De Vos. “PAC-MAP: Proximity Adjusted Centroid Mapping for Accurate Detection of Nuclei in Dense 3D Cell Systems.” bioRxiv, July 22, 2024. https://doi.org/10.1101/2024.07.18.602066.
+
 
 ![PAC-MAP workflow](imgs/PAC-MAP.png)
 
