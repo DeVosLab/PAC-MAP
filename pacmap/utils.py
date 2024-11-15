@@ -637,7 +637,7 @@ def unsqueeze_to_ndim(img, n_dim):
 		Unsqueezed image with n_dim dimensions.	
 	'''
 
-	assert img.ndim < n_dim, f'img.ndim should be less than or equal to n_dim, but found img.ndim={img.ndim} and n_dim={n_dim}'
+	assert img.ndim <= n_dim, f'img.ndim should be less than or equal to n_dim, but found img.ndim={img.ndim} and n_dim={n_dim}'
 	if img.ndim < n_dim:
 		img = torch.unsqueeze(img,0) if isinstance(img, torch.Tensor) else np.expand_dims(img,0)
 		img = unsqueeze_to_ndim(img, n_dim)

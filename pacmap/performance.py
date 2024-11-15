@@ -6,19 +6,61 @@ from tqdm import tqdm
 import tifffile
 import numpy as np
 import pandas as pd
+from skimage.morphology import ball
+from skimage.transform import resize
 from skimage.measure import regionprops_table, label
 from skimage.segmentation import clear_border
+from scipy.interpolate import interp1d
 from scipy.spatial import distance
 from scipy.optimize import linear_sum_assignment
 
-from utils import merge_close_points
-from prob2points import get_points
-from points2df import get_points_by_method
+from .utils import merge_close_points
+from .prob2points import get_points
+from .points2df import get_points_by_method
+from .peaks import _get_peak_mask, peak_local_max
 
 
 def intensity_sum(regionmask, region_intensity):
     return np.where(regionmask, region_intensity, 0).sum()
 
+
+def get_fixed_thresholds(t_min=0, t_max=1, n=100):
+    return np.linspace(t_min, t_max, n)
+
+def interpolate_pr(thresholds, precisions, recalls, fixed_thresholds=get_fixed_thresholds()):
+    precision_interp = interp1d(thresholds, precisions, bounds_error=False, fill_value=(precisions[0], precisions[-1]))
+    recall_interp = interp1d(thresholds, recalls, bounds_error=False, fill_value=(recalls[0], recalls[-1]))
+    
+    return precision_interp(fixed_thresholds), recall_interp(fixed_thresholds)
+
+def calculate_auc(thresholds, precisions, recalls, envelope=False, method=None):
+    # Interpolate precision and recall
+    interp_precisions, interp_recalls = interpolate_pr(
+        thresholds,
+        precisions,
+        recalls,
+        get_fixed_thresholds(t_min=thresholds.min(), t_max=thresholds.max())
+    )
+
+    # Ensure precisions and recalls are sorted by recall
+    sorted_pairs = sorted(zip(interp_recalls, interp_precisions), key=lambda x: x[0])
+    recalls, precisions = zip(*sorted_pairs)
+    
+    # Append sentinel values
+    recalls = np.concatenate(([0.], list(recalls), [1.]))
+    precisions = np.concatenate(([0.], list(precisions), [0.]))
+    
+    # Compute the precision envelope
+    if envelope:
+        for i in range(len(precisions) - 1, 0, -1):
+            precisions[i - 1] = max(precisions[i - 1], precisions[i])
+    
+    # Compute AUC
+    auc = 0
+    for i in range(len(recalls) - 1):
+        auc += (recalls[i+1] - recalls[i]) * precisions[i+1]
+
+    return auc
 
 def get_metrics(gt_points, pred_points, max_dist):
     # Get number of points
@@ -27,7 +69,8 @@ def get_metrics(gt_points, pred_points, max_dist):
 
     # Calculate distances
     if n_gt == 0 or n_pred == 0:
-        distances = np.zeros((0,0))
+        # distances = np.zeros((0,0))
+        tp, fp, fn, acc, precision, recall, f1 = None, None, None, None, None, None, None
     else:
         distances = distance.cdist(
             gt_points,
@@ -35,100 +78,216 @@ def get_metrics(gt_points, pred_points, max_dist):
             'sqeuclidean'
             )
     
-    # Fill with dummy distance if too large
-    max_dist = max_dist**2
-    dummy_dist = np.max((distances.max(), max_dist + 1)) # Dummy distance larger than max_dist_um
-    if distances.size > 0:
-        distances[distances > max_dist] = dummy_dist
+        # Fill with dummy distance if too large
+        max_dist = max_dist**2
+        dummy_dist = np.max((distances.max(), max_dist + 1)) # Dummy distance larger than max_dist_um
+        if distances.size > 0:
+            distances[distances > max_dist] = dummy_dist
 
-    # Match points using linear sum assignment
-    row_inds, col_inds = linear_sum_assignment(distances)
-    good_match = distances[row_inds, col_inds] <= max_dist
-    row_inds = row_inds[good_match]
-    col_inds = col_inds[good_match]
+        # Match points using linear sum assignment
+        row_inds, col_inds = linear_sum_assignment(distances)
+        good_match = distances[row_inds, col_inds] <= max_dist
+        row_inds = row_inds[good_match]
+        col_inds = col_inds[good_match]
 
-    # Calculate metrics
-    tp = len(row_inds)
-    fp = n_pred - tp
-    fn = n_gt - tp
-    eps = 1e-20
-    acc = tp/(tp+fp+fn + eps)
-    precision = tp/(tp+fp + eps)
-    recall = tp/(tp+fn + eps)
-    f1 = 2*precision*recall/(precision+recall + eps)
+        # Calculate metrics
+        tp = len(row_inds)
+        fp = n_pred - tp
+        fn = n_gt - tp
+        eps = 1e-8
+        acc = tp/(tp+fp+fn + eps)
+        precision = tp/(tp+fp + eps)
+        recall = tp/(tp+fn + eps)
+        f1 = 2*precision*recall/(precision+recall + eps)
     return tp, fp, fn, acc, precision, recall, f1
 
 
-def get_metrics_boutin(pred_points, gt_points, max_dist=6):
-    """
-    Compute true positives, false positives and false negatives based ground truth 
-    and predicted point coordinates as described in Boutin et al. (2018).
-
-    Parameters
-    ----------
-    pred_points : np.ndarray
-        Array of shape (n, 3) containing the coords of the predicted points.
-    gt_points : np.ndarray
-        Array of shape (m, 3) containing the coords of the ground truth points.
-    max_dist : int, optional
-        Radius of the neighborhood in which a centroid is considered a true
-        positive, by default 6
+def evaluate_krupa(pred_points_img, true_mask, voxelsize, metrics_krupa=False):
+    # Krupa et al. (2021)
+    assert true_mask is not None, 'Please provide the true mask'
     
-    Returns
-    -------
-    tp : int
-        Number of true positives.
-    fp : int
-        Number of false positives.
-    fn : int
-        Number of false negatives.
-    """
+    props = regionprops_table(
+        true_mask,
+        intensity_image=pred_points_img,
+        properties=['label', 'centroid'],
+        extra_properties=(intensity_sum,)
+    )
+    df_props = pd.DataFrame(props)
+    true_points = df_props[['centroid-0', 'centroid-1', 'centroid-2']].values.astype(int)
 
-    tp = 0
-    fp = 0
-    fn = 0
+    df_props['correct'] = df_props['intensity_sum'] >= 1 # The masks with at least 1 points
+    df_props['multiple'] = np.where(
+        df_props['intensity_sum'] > 1, # The masks with multiple points
+        df_props['intensity_sum'] - 1, # The number of points that are not correct within the mask
+        0
+    )
+    df_props['missed'] = df_props['intensity_sum'] == 0 # The masks with no points
 
-    nsb = len(pred_points)  # Number of centroids determined by segmentation
-    ngt = len(gt_points)   # Number of centroids in the GT
+    mask_missed = np.zeros_like(true_mask)
+    for i, row in df_props.iterrows():
+        if row['missed']:
+            mask_missed[true_mask == row['label']] = 1
+    
+    tp = df_props['correct'].sum()
+    n_multiple = df_props['multiple'].sum()
+    fn = df_props['missed'].sum()
+    fp = np.where(true_mask == 0, pred_points_img, 0).sum() # n_pred_points - n_correct - n_multiple - n_missed
 
-    for gt_point in gt_points:
-        # Find centroids in the segmentation within the neighborhood of the GT centroid
-        distances = distance.cdist(
-            np.array([gt_point]),
-            pred_points
-            )
-        within_radius = np.where(distances <= max_dist)[1]
+    # Get number of true and predicted points
+    n_true_points = len(true_points)
+    n_pred_points = pred_points_img.sum()
 
-        if len(within_radius) == 1:
-            # Exactly one centroid found within the neighborhood, count as TP
-            closest_index = np.argmin(distances)
-            tp += 1
-            # Remove the matched centroid from the list
-            pred_points = np.delete(pred_points, closest_index, axis=0)
-        elif len(within_radius) > 1:
-            # More than one centroid found within the neighborhood, choose the closest one as TP
-            closest_index = np.argmin(distances)
-            tp += 1
-            # Remove the matched centroid from the list
-            pred_points = np.delete(pred_points, closest_index, axis=0)
+    # Calculate precision and recall
+    if metrics_krupa:
+        precision = 1 - (n_multiple + fp) / n_pred_points # As proposed by Krupa et al. (2021)
+        recall = 1 - fn / n_true_points                       # As proposed by Krupa et al. (2021)
+    else:
+        precision = tp / n_pred_points
+        recall = tp / n_true_points
+    
+    return tp, fp, fn, precision, recall, n_pred_points, n_true_points
 
-    # Calculate FP and FN based on TP
-    fp = nsb - tp
-    fn = ngt - tp
 
-    return tp, fp, fn
+def evaluate_boutin(points, true_points, voxelsize):
+    # Boutin et al. (2018)
+
+    def compute_tp_fp_fn(points, true_points, neighborhood_radius=6):
+        """
+        Compute true positives, false positives and false negatives based ground truth 
+        and predicted point coordinates as described in Boutin et al. (2018).
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (n, 3) containing the coords of the predicted points.
+        true_points : np.ndarray
+            Array of shape (m, 3) containing the coords of the ground truth points.
+        neighborhood_radius : int, optional
+            Radius of the neighborhood in which a centroid is considered a true
+            positive, by default 6
+        
+        Returns
+        -------
+        tp : int
+            Number of true positives.
+        fp : int
+            Number of false positives.
+        fn : int
+            Number of false negatives.
+        """
+
+        tp = 0
+        fp = 0
+        fn = 0
+
+        nsb = len(points)  # Number of centroids determined by segmentation
+        ngt = len(true_points)   # Number of centroids in the GT
+
+        for true_point in true_points:
+            # Find centroids in the segmentation within the neighborhood of the GT centroid
+            distances = distance.cdist(np.array([true_point]), points)
+            within_radius = np.where(distances <= neighborhood_radius)[1]
+
+            if len(within_radius) == 1:
+                # Exactly one centroid found within the neighborhood, count as TP
+                closest_index = np.argmin(distances)
+                tp += 1
+                # Remove the matched centroid from the list
+                points = np.delete(points, closest_index, axis=0)
+            elif len(within_radius) > 1:
+                # More than one centroid found within the neighborhood, choose the closest one as TP
+                closest_index = np.argmin(distances)
+                tp += 1
+                # Remove the matched centroid from the list
+                points = np.delete(points, closest_index, axis=0)
+
+        # Calculate FP and FN based on TP
+        fp = nsb - tp
+        fn = ngt - tp
+
+        return tp, fp, fn
+
+    assert true_points is not None, 'Please provide the true points'
+
+    # Get number of true and predicted points
+    n_true_points = len(true_points)
+    n_pred_points = len(points)
+
+    # Convert points to um
+    points_um = points * np.array(voxelsize)
+    true_points_um = true_points * np.array(voxelsize)
+
+    tp, fp, fn = compute_tp_fp_fn(
+        pred_points=points_um,
+        gt_points=true_points_um,
+        neighborhood_radius=5,
+    )
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+
+    return tp, fp, fn, precision, recall, n_pred_points, n_true_points
+
+def evaluate_own(points, true_points, voxelsize):
+    # Own method
+    assert true_points is not None, 'Please provide the true points'
+    
+    # Get number of true and predicted points
+    n_true_points = len(true_points)
+    n_pred_points = len(points)
+
+    # Convert points to um
+    points_um = points * np.array(voxelsize)
+    true_points_um = true_points * np.array(voxelsize)
+    tp, fp, fn, _, precision, recall, _ = get_metrics(true_points_um, points_um, max_dist=5)
+
+    return tp, fp, fn, precision, recall, n_pred_points, n_true_points
+
+def evaluate_points(
+    points, border_mask, min_distance, voxelsize, 
+    true_points = None, true_mask=None, 
+    merge=False, score_method='own', metrics_krupa=False
+    ):
+    # Save original points for visualization
+    points_orig = points.copy()
+
+    # Create points image
+    pred_points_img = np.zeros_like(border_mask, dtype=bool)
+    for p in points:
+        pred_points_img[p[0], p[1], p[2]] = 1
+
+    # Clear border points
+    pred_points_img = np.where(border_mask, 0, pred_points_img)
+    points = np.argwhere(pred_points_img)
+
+    # Merge close points
+    if merge:
+        points = merge_close_points(
+            points,
+            voxelsize=voxelsize,
+            threshold=min_distance,
+            ).astype(int)
+
+    # Calculate precision and recall
+    if score_method == 'krupa':
+        tp, fp, fn, precision, recall, n_pred_points, n_true_points = evaluate_krupa(
+            pred_points_img, true_mask, voxelsize, metrics_krupa=metrics_krupa
+        )
+    elif score_method == 'boutin':
+        tp, fp, fn, precision, recall, n_pred_points, n_true_points = evaluate_boutin(
+            points, true_points, voxelsize
+        )
+    elif score_method == 'own':
+        tp, fp, fn, precision, recall, n_pred_points, n_true_points = evaluate_own(
+            points, true_points, voxelsize
+        )
+    else:
+        raise ValueError('Invalid score method')
+
+    return tp, fp, fn, precision, recall, n_pred_points, n_true_points, points_orig
+
 
 
 def main(**kwargs):
-    # Check arguments
-    assert kwargs['true_path'] is not None, 'Please provide the path to the ground truths'
-    
-    assert kwargs['points_path'] is not None or kwargs['preds_path'] is not None,\
-        'Please provide the paths to the points or raw predictions'
-    
-    if kwargs['intensity_as_spacing']:
-        assert kwargs['preds_path'] is not None, 'Please provide the path to the raw predictions'
-
     # Load environment variables
     load_dotenv()
     data_path = Path(os.getenv('DATA_PATH'))
@@ -143,13 +302,7 @@ def main(**kwargs):
     input_path_imgs = data_path.joinpath(kwargs['img_path']) if kwargs['img_path'] is not None else None
     input_path_binary = data_path.joinpath(kwargs['binary_path']) if kwargs['binary_path'] is not None else None
 
-    assert input_path_points is not None or input_path_preds is not None, \
-        'Please provide the paths to the points or raw predictions'
-
-    if kwargs['min_foreground'] > 0:
-        assert input_path_binary is not None, 'Please provide the path to the binary masks'
-
-    # Get all masks files
+    # Get all true files
     if kwargs['true_path'] is not None:
         if kwargs['true2points_method'] == 'masks':
             suffix = '.tif'
@@ -189,9 +342,19 @@ def main(**kwargs):
     else:
         files_binary = [None] * len(files_true)
 
+    # Create footprint for peak detection
+    min_distance = kwargs['min_distance']
+    se_size = min_distance # in um
+    se = ball(se_size)
+    se_size_vox = (se_size / np.array(voxelsize)).astype(int)
+    se_size_vox = se_size_vox + (se_size_vox % 2 == 0) # Make sure that the size is odd
+    footprint_vox = resize(se.astype(float), se_size_vox, order=1) > 0.5
+
     # Loop over all files
     df = pd.DataFrame()
-    for file_points, file_preds, file_true, file_img, file_binary in tqdm(zip(files_points, files_preds, files_true, files_imgs, files_binary), total=len(files_true)):
+
+    for file_points, file_preds, file_true, file_img, file_binary in zip(files_points, files_preds, files_true, files_imgs, files_binary):
+
         # Get foreground fraction, if provided
         if file_binary is not None:
             binary = tifffile.imread(file_binary)
@@ -219,6 +382,7 @@ def main(**kwargs):
             true_mask = clear_border(true_mask, mask=~border_mask)
             border_touching_mask = np.logical_xor(true_mask, foreground)
             border_mask = np.logical_or(border_mask, border_touching_mask)
+            n_true_points = np.unique(true_mask).size - 1
         else:
             true_points, _ = get_points_by_method(file_true, kwargs['true2points_method'])
             true_points = true_points.astype(int)
@@ -227,208 +391,283 @@ def main(**kwargs):
                 true_points_img[p[0], p[1], p[2]] = 1
             true_points_img = np.where(border_mask, 0, true_points_img)
             true_points = np.argwhere(true_points_img)
-
+            n_true_points = len(true_points)
         # Get points
         if file_points is not None:
             # Get points from csv file
             points = pd.read_csv(file_points, index_col=0, header=0).values.astype(int)
+
+            # Skip if no points
+            if len(points) == 0 or n_true_points == 0:
+                continue
+
+            # Evaluate points
+            tp, fp, fn, precision, recall, n_pred_points, n_true_points, points_orig = evaluate_points(
+                points, border_mask, min_distance, voxelsize,
+                true_points=true_points if kwargs['score_method'] != 'krupa' else None, 
+                true_mask=true_mask if kwargs['score_method'] == 'krupa'  else None, 
+                merge=kwargs['merge'], score_method=kwargs['score_method'], 
+                metrics_krupa=kwargs['metrics_krupa']
+            )
+
+            # Save results to df
+            df_entry = pd.DataFrame({
+                'method':               [kwargs['method_name']],
+                'file':                 [file_true.stem],
+                'foreground_fraction':  [foreground_fraction],
+                'threshold':            [kwargs['threshold'][0]],
+                'n_true_points':        [n_true_points],
+                'n_pred_points':        [n_pred_points],
+                'TPR':                  [tp/n_pred_points],
+                'FPR':                  [fp/n_pred_points],
+                'FNR':                  [fn/n_true_points],
+                'precision':            [precision],
+                'recall':               [recall],
+                'f1':                   [2 * precision * recall / (precision + recall + 1e-6)],
+            })
+            df = pd.concat(
+                [df if not df.empty else None, df_entry],
+                axis=0
+            ).reset_index(drop=True)
         elif file_preds is not None:
             # Get points from raw predictions
             preds = tifffile.imread(file_preds)
-            if kwargs['pred2points_method'] == 'peaks':
-                points = get_points(
-                    preds,
-                    min_distance=kwargs['min_distance'],
-                    threshold_abs=kwargs['threshold'],
-                    exclude_border=False,
-                    intensity_as_spacing=kwargs['intensity_as_spacing'],
-                    top_down=True if not kwargs['intensity_as_spacing'] or kwargs['top_down'] else False,
-                    voxelsize=voxelsize
+            for threshold in kwargs['threshold']:
+                if kwargs['pred2points_method'] == 'peaks':
+                    # Peak mask
+                    peak_mask = _get_peak_mask(preds, footprint_vox, threshold)
+                    points = peak_local_max(
+                        preds,
+                        min_distance=min_distance,
+                        threshold_abs=threshold,
+                        footprint=footprint_vox,
+                        p_norm=2,
+                        intensity_as_spacing=kwargs['intensity_as_spacing'],
+                        top_down=True if not kwargs['intensity_as_spacing'] or kwargs['top_down'] else False,
+                        voxelsize=voxelsize,
+                        exclude_border=False
+                    ).astype(int)
+
+                elif kwargs['pred2points_method'] == 'cc' or kwargs['pred2points_method'] == 'masks':
+                    if kwargs['pred2points_method'] == 'cc':
+                        preds_bw = preds > threshold
+                        preds_cc = label(preds_bw)
+                    else:
+                        preds_cc = preds.copy() # Keep preds around for visualization
+                    props_preds = regionprops_table(preds_cc, properties=['label', 'centroid'])
+                    df_props_preds = pd.DataFrame(props_preds)
+                    points = df_props_preds[['centroid-0', 'centroid-1', 'centroid-2']].values.astype(int)
+                else:
+                    raise ValueError('Invalid method to convert predictions to points')
+
+                # Skip if no points
+                if len(points) == 0 or n_true_points == 0:
+                    continue
+
+                # Evaluate points
+                tp, fp, fn, precision, recall, n_pred_points, n_true_points, points_orig = evaluate_points(
+                    points, border_mask, min_distance, voxelsize,
+                    true_points=true_points if kwargs['score_method'] != 'krupa' else None, 
+                    true_mask=true_mask if kwargs['score_method'] == 'krupa'  else None, 
+                    merge=kwargs['merge'], score_method=kwargs['score_method'], 
+                    metrics_krupa=kwargs['metrics_krupa']
                 )
-            elif kwargs['pred2points_method'] == 'cc':
-                preds_bw = preds > kwargs['threshold']
-                preds_cc = label(preds_bw)
-                props_preds = regionprops_table(preds_cc, properties=['label', 'centroid'])
-                df_props_preds = pd.DataFrame(props_preds)
-                points = df_props_preds[['centroid-0', 'centroid-1', 'centroid-2']].values.astype(int)
-            elif kwargs['pred2points_method'] in ['npy', 'csv', 'masks']:
-                points, _ = get_points_by_method(file_preds, kwargs['pred2points_method']).astype(int)
-            else:
-                raise ValueError('Invalid method to convert predictions to points')
 
-        # Clear border points
-        pred_points_img = np.where(border_mask, 0, pred_points_img)
-        points = np.argwhere(pred_points_img)
+                if n_pred_points == 0 or n_true_points == 0:
+                    continue
 
-        # Merge close points
-        if kwargs['merge']:
-            points = merge_close_points(
-                points,
-                voxelsize=voxelsize,
-                threshold=kwargs['min_distance'],
-                ).astype(int)
-        n_pred_points = len(points)
+                # Save results to df
+                df_entry = pd.DataFrame({
+                    'method':               [kwargs['method_name']],
+                    'file':                 [file_true.stem],
+                    'foreground_fraction':  [foreground_fraction],
+                    'threshold':            [threshold],
+                    'n_true_points':        [n_true_points],
+                    'n_pred_points':        [n_pred_points],
+                    'TPR':                  [tp/n_pred_points],
+                    'FPR':                  [fp/n_pred_points],
+                    'FNR':                  [fn/n_true_points],
+                    'precision':            [precision],
+                    'recall':               [recall],
+                    'f1':                   [2 * precision * recall / (precision + recall + 1e-6)],
+                })
+                df = pd.concat(
+                    [df if not df.empty else None, df_entry],
+                    axis=0
+                ).reset_index(drop=True)
 
-        # Skip if no points
-        if len(true_points) == 0 or len(points) == 0:
-            continue
+    # Replace inf with nan
+    df = df.replace([np.inf, -np.inf], np.nan)
 
-        # Create points image
-        pred_points_img = np.zeros(kwargs['volumesize'], dtype=bool)
-        for p in points:
-            pred_points_img[p[0], p[1], p[2]] = 1
+    # Process results
+    ## Average and std per threshold
+    df_avg = df.groupby(['threshold']).mean(numeric_only=True).reset_index()
+    df_std = df.groupby(['threshold']).std(numeric_only=True).reset_index()
 
-        # Calculate precision and recall
-        if kwargs['score_method'] == 'own':
-            # Own method
-
-            # Convert points to um
-            points_um = points * np.array(voxelsize)
-            true_points_um = true_points * np.array(voxelsize)
-            n_true_points = len(true_points)
-
-            # Calculate metrics
-            tp, fp, fn, _, precision, recall, _, _ = get_metrics(
-                true_points_um,
-                points_um,
-                max_dist=kwargs['max_dist_um']
+    if len(df_avg) > 1:
+        auc = calculate_auc(
+            df_avg['threshold'].values,
+            df_avg['precision'].values,
+            df_avg['recall'].values,
+            envelope=True,
+            method=kwargs['method_name']
             )
-        elif kwargs['score_method'] == 'krupa' and kwargs['true2points_method'] == 'masks':
-            # Krupa et al. (2021) method
+    else:
+        auc = None
 
-            # Get the number of pred points in each true mask
-            props = regionprops_table(
-                true_mask,
-                intensity_image=pred_points_img,
-                properties=['label', 'centroid'],
-                extra_properties=(intensity_sum,)
-            )
-            df_props = pd.DataFrame(props)
-            n_true_points = len(df_props)
-            df_props['correct'] = df_props['intensity_sum'] >= 1 # The masks with at least 1 points
-            df_props['missed'] = df_props['intensity_sum'] == 0
-            
-            # Calculate metrics
-            tp = df_props['correct'].sum()
-            fp = n_pred_points - tp
-            fn = df_props['missed'].sum()
-            precision = tp / n_pred_points
-            recall = tp / n_true_points
-
-        elif kwargs['score_method'] == 'boutin':
-            # Boutin et al. (2018) method
-
-            # Convert points to um
-            points_um = points * np.array(voxelsize)
-            true_points_um = true_points * np.array(voxelsize)
-            n_true_points = len(true_points)
-
-            # Calculate metrics
-            tp, fp, fn = get_metrics_boutin(
-                pred_points=points_um,
-                gt_points=true_points_um,
-                max_dist=kwargs['max_dist_um'],
-            )
-            precision = tp / (tp + fp)
-            recall = tp / (tp + fn)
-        else:
-            raise ValueError('Invalid score method')
-        
-        # Save results to df
-        df_entry = pd.DataFrame({
-            'file':                 [file_true.stem],
-            'foreground_fraction':  [foreground_fraction],
-            'n_true_points':        [n_true_points],
-            'n_pred_points':        [n_pred_points],
-            'TPR':                  [tp/n_pred_points],
-            'FPR':                  [fp/n_pred_points],
-            'FNR':                  [fn/n_true_points],
-            'precision':            [precision],
-            'recall':               [recall],
-            'f1':                   [2 * precision * recall / (precision + recall + 1e-6)],
-        })
-        df = pd.concat(
-            [df if not df.empty else None, df_entry],
-            axis=0
-        ).reset_index(drop=True)
-
-    # Save results
-    if kwargs['output_path'] is not None:
-        output_path = data_path.joinpath(kwargs['output_path'])
-        output_path.mkdir(exist_ok=True, parents=True)
-        df.to_csv(output_path.joinpath(f"{kwargs['filename']}.csv"), index=False)
-
-    # Print results
-    # Get average +/- std of precision and recall
-    tpr_mean = df['TPR'].mean()
-    tpr_std = df['TPR'].std()
-    fpr_mean = df['FPR'].mean()
-    fpr_std = df['FPR'].std()
-    fnr_mean = df['FNR'].mean()
-    fnr_std = df['FNR'].std()
-    precision_mean = df['precision'].mean()
-    precision_std = df['precision'].std()
-    recall_mean = df['recall'].mean()
-    recall_std = df['recall'].std()
-    f1_mean = df['f1'].mean()
-    f1_std = df['f1'].std()
-    avg_dist_mean = df['avg_dist'].mean()
-    avg_dist_std = df['avg_dist'].std()
+    ## Find index of best F1 score
+    idx_best_f1 = df_avg['f1'].idxmax()
+    
+    ## Report TPR, FPR, FNR, precision, recall, f1 of best F1 score
+    tpr_mean, tpr_std = df_avg.loc[idx_best_f1, 'TPR'], df_std.loc[idx_best_f1, 'TPR']
+    fpr_mean, fpr_std = df_avg.loc[idx_best_f1, 'FPR'], df_std.loc[idx_best_f1, 'FPR']
+    fnr_mean, fnr_std = df_avg.loc[idx_best_f1, 'FNR'], df_std.loc[idx_best_f1, 'FNR']
+    precision_mean, precision_std = df_avg.loc[idx_best_f1, 'precision'], df_std.loc[idx_best_f1, 'precision']
+    recall_mean, recall_std = df_avg.loc[idx_best_f1, 'recall'], df_std.loc[idx_best_f1, 'recall']
+    f1_mean, f1_std = df_avg.loc[idx_best_f1, 'f1'], df_std.loc[idx_best_f1, 'f1']
+    print(f'Best threshold: {df_avg.loc[idx_best_f1, "threshold"]:.3f}')
     print(f'TPR: {tpr_mean:.3f} +/- {tpr_std:.3f}')
     print(f'FPR: {fpr_mean:.3f} +/- {fpr_std:.3f}')
     print(f'FNR: {fnr_mean:.3f} +/- {fnr_std:.3f}')
     print(f'Precision: {precision_mean:.3f} +/- {precision_std:.3f}')
     print(f'Recall: {recall_mean:.3f} +/- {recall_std:.3f}')
     print(f'F1: {f1_mean:.3f} +/- {f1_std:.3f}')
-    print(f'Average distance: {avg_dist_mean:.3f} +/- {avg_dist_std:.3f}')
+    if auc is not None:
+        print(f'AUC: {auc:.3f}')
+    else:
+        print('AUC: N/A')
+
+    df_summary = pd.DataFrame({
+        'method':               [kwargs['method_name']],
+        'TPR':                  [tpr_mean],
+        'FPR':                  [fpr_mean],
+        'FNR':                  [fnr_mean],
+        'precision':            [precision_mean],
+        'recall':               [recall_mean],
+        'f1':                   [f1_mean],
+        'AUC':                  [auc],
+    })
+    if kwargs['output_path'] is not None:
+        output_path = data_path.joinpath(kwargs['output_path'])
+        output_path.mkdir(exist_ok=True, parents=True)
+        df_summary.to_csv(output_path.joinpath(f"{kwargs['filename']}.csv"), index=False)
 
 
 def parse_args():
-    parser = ArgumentParser(description='Performance evaluation of predicted points.')
-    parser.add_argument('--points_path', type=str, default=None,
-        help='Path to the points')
-    parser.add_argument('--preds_path', type=str, default=None,
-        help='Path to the predictions')
-    parser.add_argument('--true_path', type=str, default=None,
-        help='Path to the masks')
+    parser = ArgumentParser(
+        description='Performance evaluation of predicted points.'
+        )
+    parser.add_argument(
+        '--points_path', type=str, default=None,
+        help='Path to the points'
+    )
+    parser.add_argument(
+        '--preds_path', type=str, default=None,
+        help='Path to the predictions'
+    )
+    parser.add_argument(
+        '--true_path', type=str, default=None,
+        help='Path to the masks'
+    )
     parser.add_argument(
         '--img_path', type=str, default=None,
-        help='Path to the images')
-    parser.add_argument('--binary_path', type=str, default=None,
-        help='Path to the binary masks, used to calculate foreground fraction')
-    parser.add_argument('--output_path', type=str, default=None,
-        help='Path to save the results')
-    parser.add_argument('--filename', type=str, default='performance',
-        help='Filename of the results without extension')
-    parser.add_argument('-v', '--voxelsize', type=float, nargs=3, default=[1.9999, 0.3594, 0.3594],
-        help='Voxelsize of the images')
-    parser.add_argument('-b', '--bordersize_um', type=float, default=5,
-        help='Bordersize in um')
-    parser.add_argument('--volumesize', type=int, nargs=3, default=[46, 256, 256],
-        help='Volume size in voxels')
-    parser.add_argument('--true2points_method', type=str, choices=['npy', 'csv', 'masks'], default='csv',
-        help='Method to convert ground truth to points')
-    parser.add_argument('--pred2points_method', type=str, choices=['peaks', 'cc', 'csv', 'masks'], default='peaks',
-        help='Method to convert predictions to points')
-    parser.add_argument('-m', '--merge', action='store_true',
-        help='Merge close points')
-    parser.add_argument('-d', '--min_distance', type=float, default=5,
-        help='Minimum distance between points (default: 5)')
-    parser.add_argument('--max_dist_um', type=float, default=5,
-        help='Maximum distance in um for points to be considered a match (default: 5)')
-    parser.add_argument('-t', '--threshold', type=float, default=0.1,
-        help='Threshold for peak detection (default: 0.1)')
-    parser.add_argument('-i', '--intensity_as_spacing', action='store_true',
-        help='Use intensity as spacing')
-    parser.add_argument('--top_down', action='store_true',
-        help='Use top down approach for peak detection')
-    parser.add_argument('-s', '--score_method', type=str, default='own', choices=['own', 'krupa', 'boutin'], 
-        help='Specify the scoring method to be used (default: own)')
-    parser.add_argument('--min_foreground', type=float, default=0.0,
-        help='Minimum foreground fraction')
+        help='Path to the images'
+    )
+    parser.add_argument(
+        '--binary_path', type=str, default=None,
+        help='Path to the binary masks, used to calculate foreground fraction'
+    )
+    parser.add_argument(
+        '--output_path', type=str, default=None,
+        help='Path to save the results'
+    )
+    parser.add_argument(
+        '--method_name', type=str, default=None,
+        help='Custom name as identifier of the used method'
+    )
+    parser.add_argument(
+        '--filename', type=str, default='performance',
+        help='Filename of the results without extension'
+    )
+    parser.add_argument(
+        '-v', '--voxelsize', type=float, nargs=3, 
+        default=[1.9999, 0.3594, 0.3594],
+        help='Voxelsize of the images'
+    )
+    parser.add_argument(
+        '-b', '--bordersize_um', type=float, default=5,
+        help='Bordersize in um'
+    )
+    parser.add_argument(
+        '--volumesize', type=int, nargs=3, default=[46, 256, 256],
+        help='Volume size in voxels'
+    )
+    parser.add_argument(
+        '--true2points_method', type=str, choices=['npy', 'csv', 'masks'], 
+        default='csv',
+        help='Method to convert ground truth to points'
+    )
+    parser.add_argument(
+        '--pred2points_method', type=str, choices=['peaks', 'cc', 'masks'], 
+        default='peaks',
+        help='Method to convert predictions to points'
+    )
+    parser.add_argument(
+        '-m', '--merge', action='store_true',
+        help='Merge close points'
+    )
+    parser.add_argument(
+        '-d', '--min_distance', type=float, default=5,
+        help='Minimum distance between points (default: 5)'
+    )
+    parser.add_argument(
+        '-t', '--threshold', type=float, nargs='*',default=[0.1],
+        help='Threshold for peak detection (default: 0.1)'
+    )
+    parser.add_argument(
+        '-i', '--intensity_as_spacing', action='store_true',
+        help='Use intensity as spacing'
+    )
+    parser.add_argument(
+        '--top_down', action='store_true',
+        help='Use top down approach for peak detection'
+    )
+    parser.add_argument(
+        '-s', '--score_method', type=str, choices=['krupa', 'boutin', 'own'],
+        default='own', 
+        help='Specify the scoring method to be used (default: krupa)'
+    )
+    parser.add_argument(
+        '--metrics_krupa', action='store_true',
+        help='Calculate the metrics as proposed by Krupa et al. (2021)'
+    )
+    parser.add_argument(
+        '--min_foreground', type=float, default=0.0,
+        help='Minimum foreground fraction'
+    )
     args, _ = parser.parse_known_args()
+
     return args
+
+def check_args(kwargs):
+    # Check arguments
+    assert kwargs['true_path'] is not None, 'Please provide the path to the ground truths'
+    
+    assert kwargs['points_path'] is not None or kwargs['preds_path'] is not None,\
+        'Please provide the paths to the points or raw predictions'
+    
+    if kwargs['intensity_as_spacing']:
+        assert kwargs['preds_path'] is not None, 'Please provide the path to the raw predictions'
+
+    if kwargs['min_foreground'] > 0:
+        assert kwargs['binary_path'] is not None, 'Please provide the path to the binary masks'
+
+    if isinstance(kwargs['threshold'], float):
+        kwargs['threshold'] = [kwargs['threshold']]
+    return kwargs
 
 if __name__ == '__main__':
     args = parse_args()
-    main(**vars(args))
+    kwargs = vars(args)
+    kwargs = check_args(kwargs)
+    main(**kwargs)

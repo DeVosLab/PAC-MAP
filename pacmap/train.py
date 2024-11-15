@@ -9,7 +9,6 @@ import json
 import pandas as pd
 import tifffile
 import numpy as np
-import numbers
 from sklearn.model_selection import train_test_split
 import torch
 import torch.nn as nn
@@ -269,8 +268,12 @@ def create_model(model_type, in_channels, out_channels, final_sigmoid, f_maps, d
     # Set model type
     if model_type == 'UNet3D':
         model_class = pytorch3dunet.UNet3D
+    elif model_type == 'SAUNet3D':
+        model_class = pytorch3dunet.SAUNet3D
     elif model_type == 'ResidualUNet3D':
         model_class = pytorch3dunet.ResidualUNet3D
+    else:
+        raise ValueError(f'Model type {model_type} not supported')
     
     # Set is_segmentation if final sigmoid is needed, even though we are not doing segmentation.
     # This is needed because UNet implementation only adds a final sigmoid activation 
@@ -380,11 +383,12 @@ def train_model(model, train_dataloader, val_dataloader, device, \
         epoch_train_loss = 0
         epoch_val_loss = 0
         n=0
+        n_batches = len(train_dataloader)
 
         # Train
         model.train()
         with tqdm(train_dataloader, desc=f'Epoch {epoch +1}/{num_epochs} - Training', leave=False, unit='batch') as dataloader:
-            for batch in dataloader:
+            for i, batch in enumerate(dataloader):
                 input = batch['input'].to(device)
                 target = batch['target'].to(device)
                 n += 1 # Count number of batches, to compute average loss per epoch
@@ -415,6 +419,11 @@ def train_model(model, train_dataloader, val_dataloader, device, \
                 scaler.update()
                 epoch_train_loss += loss.item()
                 dataloader.set_postfix(loss=loss.item())
+
+                # Step the scheduler, if CosineAnnealingWarmRestarts
+                if isinstance(scheduler, torch.optim.lr_scheduler.CosineAnnealingWarmRestarts):
+                    scheduler.step(epoch + i/n_batches)
+        
         epoch_train_loss = epoch_train_loss/n
         train_loss.append(epoch_train_loss)
         
@@ -422,7 +431,11 @@ def train_model(model, train_dataloader, val_dataloader, device, \
         epoch_val_loss = test_model(
             model, val_dataloader, device, criterion, tqdm_desc= f'Epoch {epoch +1}/{num_epochs} - Validating'
             )
-        scheduler.step(epoch_val_loss)
+
+        # Step the scheduler, if ReduceLROnPlateau
+        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            scheduler.step(epoch_val_loss)
+        
         val_loss.append(epoch_val_loss)
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
@@ -621,11 +634,34 @@ def main(**kwargs):
             raise ValueError('The loss function is not recognized')
         if test_ratio < 1.0 and not kwargs['test_only']:
             print('Training the model')
-            optimizer = torch.optim.Adam(model.parameters(), lr=kwargs['lr'])
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode='min', factor=0.5, patience=kwargs['patience'], verbose=True
-                )
+            # Set optimizer
+            if kwargs['optimizer'] == 'Adam':
+                print('Using Adam optimizer')
+                optimizer = torch.optim.Adam(model.parameters(), lr=kwargs['lr'], weight_decay=kwargs['weight_decay'])
+            elif kwargs['optimizer'] == 'AdamW':
+                print('Using AdamW optimizer')
+                optimizer = torch.optim.AdamW(model.parameters(), lr=kwargs['lr'], weight_decay=kwargs['weight_decay'])
+            else:
+                raise ValueError('The optimizer is not recognized')
+            
+            # Set scheduler
+            if kwargs['scheduler'] == 'ReduceLROnPlateau':
+                print('Using ReduceLROnPlateau scheduler')
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer, mode='min', factor=0.5, patience=kwargs['patience'], verbose=True
+                    )
+            elif kwargs['scheduler'] == 'CosineAnnealingWarmRestarts':
+                print('Using CosineAnnealingWarmRestarts scheduler')
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                    optimizer, T_0=kwargs['T_0'], T_mult=kwargs['T_mult'], eta_min=kwargs['eta_min']
+                    )
+            else:
+                raise ValueError('The scheduler is not recognized')
+            
+            # Set detect anomaly
             torch.autograd.set_detect_anomaly(kwargs['detect_anomaly'])
+
+            # Train the model
             best_model_state, _, _, _ = train_model(
                 model,
                 dataloaders['train'],
@@ -668,8 +704,8 @@ def parse_args():
         help='Whether to normalize the target images or not (default: False)')
     parser.add_argument('--split', nargs=3, type=float, default=[0.7, 0.1, 0.2],
         help='Train, validation and test split (default: 0.7, 0.1, 0.2)')
-    parser.add_argument('--random_seed', type=int, default=0,
-        help='Random seed (default: 0)')
+    parser.add_argument('--random_seed', type=int, default=42,
+        help='Random seed (default: 42)')
     parser.add_argument('--min_percentage', type=float, default=None,
         help='Filter for minimum percentage of foreground in the input images (default: None). If None, no filtering is performed')
     parser.add_argument('--batch_size', type=int, default=2,
@@ -680,17 +716,31 @@ def parse_args():
         help='Learning rate (default: 1e-4)')
     parser.add_argument('--max_grad_norm', type=float, default=None,
         help='Maximum gradient norm (default: None, no clipping) for gradient clipping')
-    parser.add_argument('--model_type', type=str, choices=('UNet3D', 'ResidualUNet3D') , default='UNet3D',
+    parser.add_argument('--model_type', type=str, choices=('UNet3D', 'SAUNet3D', 'ResidualUNet3D') , default='UNet3D',
         help='Model type (default: UNet3D)')
     parser.add_argument('--pretrained', type=str, default=None,
         help=('Define path of saved pretrained model state dict. '
               'By default, no pretrained model is used and a new model is trained'))
+    parser.add_argument('--is_segmentation', action='store_true', default=False,
+        help='Whether the model is a segmentation model or not (default: False, no final activation function)')
     parser.add_argument('--final_sigmoid', action='store_true', default=False,
-        help='Whether to use a sigmoid activation function in the final layer (default: True)')
+        help='Only True when is_segmentation == True. Whether to use a sigmoid activation function in the final layer (default: True)')
     parser.add_argument('--loss', type=str, choices=['MSE', 'MSE_MS_SSIM','MSE_MS_SSIM', 'TverskyLoss'], default='MSE',
         help='Loss function (default: MSE)')
+    parser.add_argument('--optimizer', type=str, choices=['Adam', 'AdamW'], default='Adam',
+        help='Optimizer (default: Adam)')
+    parser.add_argument('--weight_decay', type=float, default=0.0,
+        help='Weight decay for optimizer (default: 0.0)')
+    parser.add_argument('--scheduler', type=str, choices=['ReduceLROnPlateau', 'CosineAnnealingWarmRestarts'], default='ReduceLROnPlateau',
+        help='Scheduler (default: ReduceLROnPlateau)')
     parser.add_argument('--patience', type=int, default=5,
         help='Patience for ReduceLROnPlateau scheduler (default: 5)')
+    parser.add_argument('--T_0', type=int, default=None,
+        help='T_0 for CosineAnnealingWarmRestarts scheduler (default: None)')
+    parser.add_argument('--T_mult', type=int, default=2,
+        help='T_mult for CosineAnnealingWarmRestarts scheduler (default: 2)')
+    parser.add_argument('--eta_min', type=float, default=0.0,
+        help='eta_min for CosineAnnealingWarmRestarts scheduler (default: 0.0)')
     parser.add_argument('--augment_rescale_p', type=float, default=0.5,
         help='Probability to using rescale data augmentation (default: False)')
     parser.add_argument('--augment_rescale_range', nargs=2, type=float, default=[0.75, 1.25],
