@@ -58,57 +58,7 @@ python scripts/patch_creation_script.py -f configs/LN18-RED.py -k binarized
 ```
 
 ## Data
-The original data used in the paper is available at [Zenodo](https://zenodo.org/records/11636385). It includes lightsheet images of spheroids of two different cell lines (LN18-RED and SH-SY5Y) and centroid annotations for model training and evaluation. The data is organized in the following way:
-
-```plaintext
-LN18-RED
-├── pretrain # Pretraining data with weak annotations
-│   ├── patches
-│   │   ├── sample_01
-│   │   │   ├── patch_0000.tif 
-│   │   │   ├── ...
-│   │   ├── ...
-│   ├── patches_binary # Used to filter out patches with a lot of background
-│   │   ├── sample_01
-│   │   │   ├── patch_0000.tif
-│   │   │   ├── ...
-│   │   ├── ...
-│   ├── points_csv # Weak centroid annotations from seeded watershed
-│   │   ├── sample_01
-│   │   │   ├── patch_0000.csv
-│   │   │   ├── ...
-│   │   ├── ...
-SH-SY5Y
-├── train # Training data with manual annotations
-│   ├── patches
-│   │   ├── sample_01
-│   │   │   ├── patch_xxxx.tif
-│   │   │   ├── ...
-│   │   ├── ...
-│   ├── points_csv
-│   │   ├── sample_01
-│   │   │   ├── patch_xxxx.csv
-│   │   │   ├── ...
-│   │   ├── ...
-── test # Test data with manual annotations
-    ├── patches
-    │   ├── sample_01
-    │   │   ├── patch_yyyy.tif
-    │   │   ├── ...
-    │   ├── ...
-    ├── points_csv
-    │   ├── sample_01
-    │   │   ├── patch_yyyy.csv
-    │   │   ├── ...
-    │   ├── ...
-preprocessed_images # Preprocessed in-toto images added for reference
-├── LN18-RED
-│   ├── sample_01.tif
-│   ├── ...
-├── SH-SY5Y
-│   ├── sample_01.tif
-│   ├── ...
-```
+The original data used in the paper is available at [Zenodo](https://zenodo.org/records/11636385). It includes lightsheet images of spheroids of two different cell lines (LN18-RED and SH-SY5Y) and centroid annotations for model training and evaluation. In addition, weights of pretrained, finetuned and trained from scratch models are provided.
 
 
 
