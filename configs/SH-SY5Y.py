@@ -1,8 +1,10 @@
+import numpy as np
+
 from pacmap.utils import crop_stack
 
 dataset_name = "SH-SY5Y"
 
-# Raw data info
+# RAW DATA INFO
 config = {
     "raw": {
         "input_path": f"{dataset_name}/raw",
@@ -10,7 +12,7 @@ config = {
     }
 }
 
-# Preprocessing
+# PREPROCESSING
 config.update({
     "preprocess": {
         "input_path": f"{dataset_name}/raw",
@@ -25,7 +27,7 @@ config.update({
     }
 })
 
-# Binarization
+# BINARIZATION
 config.update({
     "binarize": {
         "input_path": f"{dataset_name}/preprocessed",
@@ -34,7 +36,7 @@ config.update({
     },
 })
 
-# Patchify preprocessed images
+# PATCHIFY PREPROCESSED IMAGES
 config.update({
     "patch_creation": {
         "preprocessed": {
@@ -47,7 +49,7 @@ config.update({
     }
 })
 
-# Patchify binary images
+# PATCHIFY BINARY IMAGES
 config['patch_creation'].update({
     "binarized": {
         "input_path": f"{dataset_name}/binary",
@@ -58,7 +60,7 @@ config['patch_creation'].update({
     }
 })
 
-# Generate weak targets
+# GENERATE WEAK TARGETS
 RADI_UM = [10, 10, 10]
 config.update({
     "weak_targets": {
@@ -74,7 +76,7 @@ config.update({
     }
 })
 
-# Generate ground truth training targets
+# GENERATE GROUND TRUTH TRAINING TARGETS
 config.update({
     "points2prob": {
         "targets_cmap": {
@@ -102,7 +104,7 @@ config.update({
     }
 })
 
-# Train nuclei centroid prediction model
+# TRAIN STANDARD 3D U-NET BASED MODELS
 INPUT_PATH = f"{dataset_name}/train/patches"
 SPLIT = [0.8, 0.2, 0.0]
 BATCH_SIZE = 4
@@ -169,24 +171,98 @@ for SEED in seeds:
             },
         })
 
-# Prediction configs
+# TRAIN SAU-NET BASED MODELS
+INPUT_PATH = f"{dataset_name}/train/patches"
+SPLIT = [0.8, 0.2, 0.0]
+BATCH_SIZE = 4
+NUM_EPOCHS = 150
+LR = 1e-4
+ETA_MIN = LR * 1e-3
+OPTIMIZER = "AdamW"
+WEIGHT_DECAY = 1e-3
+SCHEDULER = "CosineAnnealingWarmRestarts"
+T_0 = 15
+T_MULT = 2
+MODEL_ARCH = "SAUNet3D"
+LOSS = "MSE"
+F_MAPS = 32
+DEPTH = 4
+CHECK_BATCHES = True
+AUGMENT_RESCALE_P = 0.0
+GPU_ID = 0
+MODEL_TYPE = "scratch"
+
+seeds = [0, 1, 2]
+for SEED in seeds:
+    config["train"].update({
+        f"sau-cmap-{MODEL_TYPE}-{SEED}": {
+            "input_path": INPUT_PATH,
+            "target_path": f"{dataset_name}/train/targets_cmap/targets",
+            "output_path": f"{dataset_name}/models/sau-cmap-{MODEL_TYPE}-{SEED}",
+            "pretrained": None,
+            "gpu_id": GPU_ID,
+            "random_seed": SEED,
+            "final_sigmoid": True,
+            "normalize_targets": True,
+            "split": SPLIT,
+            "batch_size": BATCH_SIZE,
+            "num_epochs": NUM_EPOCHS,
+            "lr": LR,
+            "optimizer": OPTIMIZER,
+            "weight_decay": WEIGHT_DECAY,
+            "scheduler": SCHEDULER,
+            "T_0": T_0,
+            "T_mult": T_MULT,
+            "eta_min": ETA_MIN,
+            "model_type": MODEL_ARCH,
+            "loss": LOSS,
+            "f_maps": F_MAPS,
+            "check_batches": CHECK_BATCHES,
+            "augment_rescale_p": AUGMENT_RESCALE_P,
+        },
+        f"sau-pacmap-{MODEL_TYPE}-{SEED}": {
+            "input_path": INPUT_PATH,
+            "target_path": f"manual_annotation/{dataset_name}/train/targets_pacmap/targets",
+            "output_path": f"{dataset_name}/models/sau-pacmap-{MODEL_TYPE}-{SEED}",
+            "pretrained": None,
+            "gpu_id": GPU_ID,
+            "random_seed": SEED,
+            "final_sigmoid": False,
+            "normalize_targets": False,
+            "split": SPLIT,
+            "batch_size": BATCH_SIZE,
+            "num_epochs": NUM_EPOCHS,
+            "lr": LR,
+            "optimizer": OPTIMIZER,
+            "weight_decay": WEIGHT_DECAY,
+            "scheduler": SCHEDULER,
+            "T_0": T_0,
+            "T_mult": T_MULT,
+            "eta_min": ETA_MIN,
+            "model_type": MODEL_ARCH,
+            "loss": LOSS,
+            "f_maps": F_MAPS,
+            "check_batches": CHECK_BATCHES,
+            "augment_rescale_p": AUGMENT_RESCALE_P,
+        },
+    })
+
+# PREDICT WITH STANDARD 3D U-NET BASED MODELS
 INPUT_PATH = f"{dataset_name}/test/patches"
 OUTPUT_PATH_BASE = f"{dataset_name}/test/model_pred"
 MODEL_ARCH = "UNet3D"
 F_MAPS = 32
 DEPTH = 4
-THRESHOLD_CMAP = 0.2
-THRESHOLD_PACMAP = 2.5
 MIN_DISTANCE = 5
 CHECK_BATCHES = True
-DO_BORDER = False
 VOXELSIZE = config['raw']['voxelsize']
 PRETRAIN_DATASET = "LN18-RED"
 GPU_ID = 0
+SAVE_CSV = False
+SAVE_PREDS = True
 
 seeds = [0, 1, 2]
 model_types = ["pretrain", "scratch", "finetuned"]
-config['pred_model'] = {}
 for SEED in seeds:
     for MODEL_TYPE in model_types:
         MODEL_PATH_BASE = f"{PRETRAIN_DATASET}/models" if MODEL_TYPE == "pretrained" else f"{dataset_name}/models"
@@ -199,19 +275,12 @@ for SEED in seeds:
                 "model_type": MODEL_ARCH,
                 "final_sigmoid": True,
                 "gpu_id": GPU_ID,
-                "merge_close_points": False,
-                "do_border":True,
-                "threshold_abs": THRESHOLD_CMAP,
-                "intensity_as_spacing": False,
-                "top_down": True,
                 "voxelsize": VOXELSIZE,
-                "save_csv": True,
-                "save_preds": True,
+                "save_csv": SAVE_CSV,
+                "save_preds": SAVE_PREDS,
                 "model_type": MODEL_TYPE,
                 "f_maps": F_MAPS,
                 "depth": DEPTH,
-                "min_distance": MIN_DISTANCE,
-                "do_border": DO_BORDER,
                 "check_batches": CHECK_BATCHES
             },
             f"pacmap-{MODEL_TYPE}-{SEED}": {
@@ -220,32 +289,80 @@ for SEED in seeds:
                 "model_path": f"{MODEL_PATH_BASE}/pacmap-{MODEL_TYPE}-{SEED}",
                 "final_sigmoid": False,
                 "gpu_id": GPU_ID,
-                "merge_close_points": False,
-                "threshold_abs": THRESHOLD_PACMAP,
-                "intensity_as_spacing": True,
-                "top_down": False,
                 "voxelsize": VOXELSIZE,
-                "save_csv": True,
-                "save_preds": True,
+                "save_csv": SAVE_CSV,
+                "save_preds": SAVE_PREDS,
                 "model_type": MODEL_ARCH,
                 "f_maps": F_MAPS,
                 "depth": DEPTH,
-                "min_distance": MIN_DISTANCE,
-                "do_border": DO_BORDER,
                 "check_batches": CHECK_BATCHES
             },
         })
 
 
-# Performance evaluation
+# PREDICT WITH SAU-NET BASED MODELS
+INPUT_PATH = f"{dataset_name}/test/patches"
+OUTPUT_PATH_BASE = f"{dataset_name}/test/model_pred"
+MODEL_PATH_BASE = f"{dataset_name}/models"
+MODEL_ARCH = "SAUNet3D"
+F_MAPS = 32
+DEPTH = 4
+CHECK_BATCHES = True
+VOXELSIZE = config['raw']['voxelsize']
+GPU_ID = 0
+MODEL_TYPE = "scratch"
+SAVE_CSV = False
+SAVE_PREDS = True
+
+seeds = [0, 1, 2]
+for SEED in seeds:
+    config['pred_model'].update({
+        f"sau-cmap-{MODEL_TYPE}-{SEED}":{
+            "input_path":INPUT_PATH,
+            "output_path": f"{OUTPUT_PATH_BASE}/sau-cmap-{MODEL_TYPE}-{SEED}",
+            "model_path": f"{MODEL_PATH_BASE}/sau-cmap-{MODEL_TYPE}-{SEED}",
+            "model_type": MODEL_ARCH,
+            "final_sigmoid": True,
+            "gpu_id": GPU_ID,
+            "voxelsize": VOXELSIZE,
+            "save_csv": SAVE_CSV,
+            "save_preds": SAVE_PREDS,
+            "model_type": MODEL_TYPE,
+            "f_maps": F_MAPS,
+            "depth": DEPTH,
+            "check_batches": CHECK_BATCHES
+        },
+        f"sau-pacmap-{MODEL_TYPE}-{SEED}": {
+            "input_path": INPUT_PATH,
+            "output_path": f"{OUTPUT_PATH_BASE}/sau-pacmap-{MODEL_TYPE}-{SEED}",
+            "model_path": f"{MODEL_PATH_BASE}/sau-pacmap-{MODEL_TYPE}-{SEED}",
+            "final_sigmoid": False,
+            "gpu_id": GPU_ID,
+            "voxelsize": VOXELSIZE,
+            "save_csv": SAVE_CSV,
+            "save_preds": SAVE_PREDS,
+            "model_type": MODEL_ARCH,
+            "f_maps": F_MAPS,
+            "depth": DEPTH,
+            "check_batches": CHECK_BATCHES
+        },
+    })
+
+# PERFORMANCE EVALUATION
 TRUE_PATH = f"{dataset_name}/test/points_csv"
 TRUE2POINTS_METHOD = "csv"
 OUTPUT_PATH = f"{dataset_name}/test/model_pred"
 VOXELSIZE = config['raw']['voxelsize']
 VOLUMESIZE_VOX = [46, 256, 256]
 BORDERSIZE_UM = 5
-THRESHOLD_SAU = 0.4
+n_steps = 15
+t_min = 0
+t_max = 1
+THRESHOLD_SEG = np.linspace(t_min, t_max, n_steps).tolist() # Segmentation threshold
+THRESHOLD = np.linspace(t_min, t_max, n_steps).tolist() # Probability threshold
+THRESHOLD_D = (11*np.linspace(t_min, t_max, n_steps)).tolist() # Distance threshold
 
+# Seeded watershed and StarDist
 config.update({
     "performance": {
         "seeded_watershed": {
@@ -273,9 +390,9 @@ config.update({
     }
 })
 
+# 3D U-Net based models
 model_types = ["pretrained", "scratch" "finetuned"]
 seeds = [0, 1, 2]
-config["performance"] = {}
 for MODEL_TYPE in model_types:
     for SEED in seeds:
         config["performance"].update({
@@ -289,7 +406,7 @@ for MODEL_TYPE in model_types:
                 "voxelsize": VOXELSIZE,
                 "volumesize_vox": VOLUMESIZE_VOX,
                 "bordersize_um": BORDERSIZE_UM,
-                "threshold": THRESHOLD_SAU
+                "threshold": THRESHOLD
             },
             f"cmap-{MODEL_TYPE}-{SEED}": {
                 "true_path": TRUE_PATH,
@@ -301,7 +418,7 @@ for MODEL_TYPE in model_types:
                 "voxelsize": VOXELSIZE,
                 "volumesize_vox": VOLUMESIZE_VOX,
                 "bordersize_um": BORDERSIZE_UM,
-                "threshold": THRESHOLD_CMAP
+                "threshold": THRESHOLD
             },
             f"pacmap-{MODEL_TYPE}-{SEED}": {
                 "true_path": TRUE_PATH,
@@ -313,8 +430,53 @@ for MODEL_TYPE in model_types:
                 "voxelsize": VOXELSIZE,
                 "volumesize_vox": VOLUMESIZE_VOX,
                 "bordersize_um": BORDERSIZE_UM,
-                "threshold": THRESHOLD_PACMAP,
+                "threshold": THRESHOLD_D,
                 "intensity_as_spacing": True,
                 "top_down": False
             }
         })
+
+# SAU-Net based models
+seeds = [0, 1, 2]
+MODEL_TYPE = "scratch"
+for SEED in seeds:
+    config["performance"].update({
+        f"sau-sau-net-{MODEL_TYPE}-{SEED}": {
+            "true_path": TRUE_PATH,
+            "true2points_method": TRUE2POINTS_METHOD,
+            "pred_path": f"{dataset_name}/test/model_pred/sau-cmap-{MODEL_TYPE}-{SEED}/preds",
+            "pred2points_method": "cc",
+            "output_path": OUTPUT_PATH,
+            "filename": f"sau-sau-net-{MODEL_TYPE}-{SEED}",
+            "voxelsize": VOXELSIZE,
+            "volumesize_vox": VOLUMESIZE_VOX,
+            "bordersize_um": BORDERSIZE_UM,
+            "threshold": THRESHOLD
+        },
+        f"sau-cmap-{MODEL_TYPE}-{SEED}": {
+            "true_path": TRUE_PATH,
+            "true2points_method": TRUE2POINTS_METHOD,
+            "pred_path": f"{dataset_name}/test/model_pred/sau-cmap-{MODEL_TYPE}-{SEED}/preds",
+            "pred2points_method": "peaks",
+            "output_path": OUTPUT_PATH,
+            "filename": f"sau-cmap-{MODEL_TYPE}-{SEED}",
+            "voxelsize": VOXELSIZE,
+            "volumesize_vox": VOLUMESIZE_VOX,
+            "bordersize_um": BORDERSIZE_UM,
+            "threshold": THRESHOLD
+        },
+        f"sau-pacmap-{MODEL_TYPE}-{SEED}": {
+            "true_path": TRUE_PATH,
+            "true2points_method": TRUE2POINTS_METHOD,
+            "pred_path": f"{dataset_name}/test/model_pred/sau-pacmap-{MODEL_TYPE}-{SEED}/preds",
+            "pred2points_method": "peaks",
+            "output_path": OUTPUT_PATH,
+            "filename": f"sau-pacmap-{MODEL_TYPE}-{SEED}",
+            "voxelsize": VOXELSIZE,
+            "volumesize_vox": VOLUMESIZE_VOX,
+            "bordersize_um": BORDERSIZE_UM,
+            "threshold": THRESHOLD_D,
+            "intensity_as_spacing": True,
+            "top_down": False
+        }
+    })
