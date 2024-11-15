@@ -10,6 +10,16 @@ import tensorflow as tf
 from stardist.models import StarDist3D
 
 
+def load_model(from_official_pretrained, model_name, model_folder, model_weights):
+    if from_official_pretrained:
+        model = StarDist3D.from_pretrained(model_name)
+    else:
+        model = StarDist3D(None, name=model_name, basedir=model_folder)
+        model.load_weights(name=model_weights)
+        model.trainable = False
+        model.keras_model.trainable = False
+    return model
+
 def main(**kwargs):
     # Define input and output paths
     assert kwargs['input_path'] is not None and isinstance(kwargs['input_path'], (str, Path)), \
@@ -22,27 +32,30 @@ def main(**kwargs):
 
     # Set GPU memory growth to True
     gpus = tf.config.list_physical_devices('GPU')
-    if gpus and kwargs['set_memory_growth']:
+    if gpus:
         try:
-            # Set memory growth on so that not all memory is allocated at once
-            # Currently, however, memory growth needs to be the same across GPUs,
-            # but this is not an issue if there is just a single GPU
-            tf.config.experimental.set_memory_growth(gpus[kwargs['gpu_id']], True)
             logical_gpus = tf.config.list_logical_devices('GPU')
             print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+
+            gpu_id = kwargs['gpu_id']
+            os.environ["CUDA_VISIBLE_DEVICES"]=f"{gpu_id}"
+            print(f"Using GPU {gpu_id}")
+            # Currently, memory growth needs to be the same across GPUs
+            # If you only want to use one GPU on a machine with multiple GPUs,
+            # you can turn of memory growth. Otherwise it will be done for all GPUs
+            tf.config.experimental.set_memory_growth(gpus[gpu_id], kwargs['memory_growth'])
+            print(f"Memory growth set to {kwargs['memory_growth']}")
         except RuntimeError as e:
             # Memory growth must be set before GPUs have been initialized
             print(e)
-
-    # Define device with GPU id
-    if 'gpu_id' in range(0, len(gpus)):
-        gpu_id = kwargs['gpu_id']
-    else:
-        gpu_id = 0
-    os.environ["CUDA_VISIBLE_DEVICES"]=f"{gpu_id}"
-
+        
     # Define the model
-    model = StarDist3D.from_pretrained('3D_demo')
+    model = load_model(
+        kwargs['from_official_pretrained'],
+        kwargs['model_name'],
+        kwargs['model_folder'],
+        kwargs['model_weights']
+        )
 
     # Optimize thresholds
     if kwargs['optimize_thresholds']:
@@ -102,11 +115,17 @@ def parse_args():
                         help='Path to output folder')
     parser.add_argument('--gpu_id', type=int, default=0,
                         help='GPU id')
-    parser.add_argument('--set_memory_growth', action='store_true',
-                        help='Set memory growth on GPU')
-    parser.add_argument('--prob_thresh', type=float, nargs='*', default=None, 
+    parser.add_argument('--from_official_pretrained', action='store_true',
+                        help='Load official pretrained model')
+    parser.add_argument('--model_folder', type=str, default=None,
+                        help='Model folder')
+    parser.add_argument('--model_name', type=str, default='3D_demo',
+                        help='Model name')
+    parser.add_argument('--model_weights', type=str, default=None,
+                        help='Model weights')
+    parser.add_argument('--prob_thresh', type=float, nargs='*', default=0.5, 
                         help='Probability threshold for stardist')
-    parser.add_argument('--nms_thresh', type=float, nargs='*', default=None, 
+    parser.add_argument('--nms_thresh', type=float, nargs='*', default=0.3, 
                         help='Non-maximum suppression threshold for stardist')
     parser.add_argument('--img_size', type=int, nargs=3, default=None, 
                         help='Image size to resize to')
@@ -118,6 +137,8 @@ def parse_args():
                         help='Optimize prob_thresh and nms_thresh thresholds')
     parser.add_argument('--true_path', type=str, default=None,
                         help='Path to true masks for optimization')
+    parser.add_argument('--memory_growth', action='store_true',
+                        help='Set memory growth to True')
     args, _ = parser.parse_known_args()
 
     if isinstance(args.prob_thresh, numbers.Number) or args.prob_thresh is None:
