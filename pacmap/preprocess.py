@@ -28,6 +28,8 @@ def main(**kwargs):
     # Define channels to normalize
     if kwargs['channels2normalize'] is not None:
         channels2normalize = [channel_mapping[c] for c in kwargs['channels2normalize']]
+    else:
+        channels2normalize = None
 
     # Get all filenames in input path
     filenames = sorted([f for f in input_path.iterdir() if \
