@@ -660,11 +660,13 @@ def squeeze_to_ndim(img, n_dim):
 		Squeezed image with n_dim dimensions.
 	'''
 
-	assert img.ndim >= n_dim, f'img.ndim should be greater than or equal to n_dim, but found img.ndim={img.ndim} and n_dim={n_dim}'
-	assert any([s == 1 for s in img.shape]), 'img cannot be further squeezed, as it does not contain any singleton dimensions'
+	
 	if img.ndim > n_dim:
+		assert img.ndim >= n_dim, f'img.ndim should be greater than or equal to n_dim, but found img.ndim={img.ndim} and n_dim={n_dim}'
+		assert any([s == 1 for s in img.shape]), 'img cannot be further squeezed, as it does not contain any singleton dimensions'
 		img = torch.squeeze(img) if isinstance(img, torch.Tensor) else np.squeeze(img)
 		img = squeeze_to_ndim(img, n_dim)
+	
 	return img
 
 
