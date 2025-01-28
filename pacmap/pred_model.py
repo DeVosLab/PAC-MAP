@@ -60,17 +60,17 @@ def main(**kwargs):
                 metadata['patches_structure'] = list(ast.literal_eval(metadata['patches_structure']))
                 metadata['original_img_shape'] = list(ast.literal_eval(metadata['original_img_shape']))
                 
-                # Remove/overwrite channel axis from metadata
-                metadata['patch_size'].pop(1)
-                metadata['patch_stride'].pop(1) 
-                metadata['patches_structure'].pop(1)
-                metadata['original_img_shape'].pop(1)
+                # Overwrite channel axis from metadata (1 channel)
+                metadata['patch_size'][1] = 1
+                metadata['patch_stride'][1] = 1
+                metadata['patches_structure'][1] = 1
+                metadata['original_img_shape'][1] = 1
             except:
                 metadata = {}      
         else:
             metadata = {}
         metadata['channels'] = 1
-        metadata['axes'] = 'ZYX'
+        metadata['axes'] = 'ZCYX'
         
     
     output_path = Path(kwargs['output_path'])
@@ -113,6 +113,7 @@ def main(**kwargs):
             with torch.no_grad():
                 output = model(patch)
         output = squeeze_to_ndim(output, 3).cpu().numpy().astype(float)
+        output = np.expand_dims(output, 1)
 
         if kwargs['save_npy'] or kwargs['save_csv'] or kwargs['save_points_imgs']:
             print('Finding peaks')
@@ -161,8 +162,10 @@ def main(**kwargs):
         if kwargs['save_points_imgs']:
             filepath = output_path.joinpath('points_imgs', batch, filename + '.tif')
             filepath.parent.mkdir(exist_ok=True, parents=True)
-            points_img = np.zeros(output.shape, dtype=bool)
+            points_img_shape = (output.shape[0], output.shape[2], output.shape[3])
+            points_img = np.zeros(points_img_shape, dtype=bool)
             points_img[tuple(points.T)] = True
+            points_img = np.expand_dims(points_img, 1)
             tifffile.imwrite(
                 filepath,
                 points_img.astype(np.float32),
