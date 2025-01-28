@@ -1,0 +1,30 @@
+name: pacmap_py3.9
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.9
+  - h5py
+  - matplotlib
+  - numexpr
+  - numpy
+  - openpyxl
+  - pandas
+  - pillow
+  - python-dotenv
+  - scikit-image
+  - scikit-learn
+  - scipy
+  - seaborn
+  - tensorboard
+  - tifffile=2023.7.18
+  - imagecodecs=2023.1.23
+  - tqdm
+  - pytorch=2.0.1
+  - torchvision=0.15.2
+  - pytorch-cuda=11.8
+  - pip=23.2.1
+  - pip:
+      - patchify==0.2.3
+      - pytorch-msssim==1.0.0
