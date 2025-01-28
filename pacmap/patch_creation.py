@@ -108,7 +108,7 @@ def parse_args():
         help='Define the stride between created patches in Z, Y and X dim')
     parser.add_argument('--store_batches', type=bool, default=True,
         help='Store patches in batch subfolders (samples) or not')
-    parser.add_argument('--verbose', type=bool, action='store_true',
+    parser.add_argument('--verbose', action='store_true',
         help='Print more information')
     args, _ = parser.parse_known_args()
 
