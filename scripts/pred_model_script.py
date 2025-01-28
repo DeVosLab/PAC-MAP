@@ -14,6 +14,7 @@ def main(**kwargs):
     # Load environment variables
     load_dotenv()
     data_path = os.getenv('DATA_PATH')
+    model_path = os.getenv('MODELS_PATH')
 
     # Load dataset configuration stored as dict in python file
     config_file = Path(kwargs['dataset_config_file'])
@@ -22,7 +23,7 @@ def main(**kwargs):
     args = pred_model.parse_args()
     args.input_path = Path(data_path).joinpath(config['pred_model'][kwargs['config_key']]['input_path'])
     args.output_path = Path(data_path).joinpath(config['pred_model'][kwargs['config_key']]['output_path'])
-    args.model_path = Path(data_path).joinpath(config['pred_model'][kwargs['config_key']]['model_path'])
+    args.model_path = Path(model_path).joinpath(config['pred_model'][kwargs['config_key']]['model_path'])
     args.model_type = config['pred_model'][kwargs['config_key']]['model_type'] if \
         'model_type' in config['pred_model'][kwargs['config_key']] else 'UNet3D'
     args.final_sigmoid = config['pred_model'][kwargs['config_key']]['final_sigmoid'] if \
