@@ -36,9 +36,11 @@ conda activate pacmap_py3.9
 4) Create a `.env` file in the root of the repository with the following content:
 ```
 DATA_PATH=/path/to/data
+MODELS_PATH=/path/to/models
 ```
-This directory contains the data and trained models for each dataset, i.e., `dataset_name/train/...` and `dataset_name/models/...`.
-
+The `DATA_PATH` directory contains the data for each dataset, e.g., `dataset_name/train/...` 
+The `MODELS_PATH` directory contains the trained models and trained models.
+Data an model related paths will be interpreted relative to these predefined paths.
 
 ## Usage
 The repository contains code for training and evaluating PAC-MAP models on different datasets. On a high level, the code is organized in the following way:
