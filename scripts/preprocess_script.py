@@ -39,6 +39,7 @@ def main(**kwargs):
     args.crop_channel = config['preprocess']['crop_channel'] if 'crop_channel' in config['preprocess'] else None
     args.masked_patch = config['preprocess']['masked_patch'] if 'masked_patch' in config['preprocess'] else False
     args.min_size = config['preprocess']['min_size'] if 'min_size' in config['preprocess'] else None
+    args.padding = config['preprocess']['padding'] if 'padding' in config['preprocess'] else None
     args.pmins = config['preprocess']['pmins'] if 'pmins' in config['preprocess'] else args.pmins # overwrite default
     args.pmaxs = config['preprocess']['pmaxs'] if 'pmaxs' in config['preprocess'] else args.pmaxs # overwrite default
 
