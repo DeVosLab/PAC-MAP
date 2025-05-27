@@ -113,7 +113,6 @@ def main(**kwargs):
             with torch.no_grad():
                 output = model(patch)
         output = squeeze_to_ndim(output, 3).cpu().numpy().astype(float)
-        output = np.expand_dims(output, 1)
 
         if kwargs['save_npy'] or kwargs['save_csv'] or kwargs['save_points_imgs']:
             print('Finding peaks')
@@ -126,6 +125,7 @@ def main(**kwargs):
                 top_down = kwargs['top_down'],
                 voxelsize = kwargs['voxelsize']
                 )
+            output = np.expand_dims(output, 1)
 
             if kwargs['merge_close_points']:
                 points = merge_close_points(points, kwargs['voxelsize'], kwargs['min_distance'])
