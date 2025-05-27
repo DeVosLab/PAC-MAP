@@ -11,14 +11,25 @@ from pacmap import pred_model
 
 
 def main(**kwargs):
-    # Load environment variables
-    load_dotenv()
-    data_path = os.getenv('DATA_PATH')
-    model_path = os.getenv('MODELS_PATH')
-
     # Load dataset configuration stored as dict in python file
     config_file = Path(kwargs['dataset_config_file'])
     config = SourceFileLoader(config_file.name, str(config_file)).load_module().config
+
+    # Get the data path
+    data_path = config.get('DATA_PATH', None)
+    if data_path is None:
+        load_dotenv()
+        data_path = os.getenv('DATA_PATH')
+    if data_path is None:
+        raise ValueError('DATA_PATH is not set in the config file or environment variables')
+    
+    # Get the model path
+    model_path = config.get('MODELS_PATH', None)
+    if model_path is None:
+        load_dotenv()
+        model_path = os.getenv('MODELS_PATH')
+    if model_path is None:
+        raise ValueError('MODELS_PATH is not set in the config file or environment variables')
 
     args = pred_model.parse_args()
     args.input_path = Path(data_path).joinpath(config['pred_model'][kwargs['config_key']]['input_path'])

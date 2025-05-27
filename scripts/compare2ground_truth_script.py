@@ -11,13 +11,17 @@ from pacmap import compare2ground_truth
 
 
 def main(**kwargs):
-    # Load environment variables
-    load_dotenv()
-    data_path = os.getenv('DATA_PATH')
-
     # Load dataset configuration stored as dict in python file
     config_file = Path(kwargs['dataset_config_file'])
     config = SourceFileLoader(config_file.name, str(config_file)).load_module().config
+
+    # Get the data path
+    data_path = config.get('DATA_PATH', None)
+    if data_path is None:
+        load_dotenv()
+        data_path = os.getenv('DATA_PATH')
+    if data_path is None:
+        raise ValueError('DATA_PATH is not set in the config file or environment variables')
 
     args = compare2ground_truth.parse_args()
     args.filename = Path(data_path).joinpath(config['compare2ground_truth'][kwargs['config_key']]['filename'])

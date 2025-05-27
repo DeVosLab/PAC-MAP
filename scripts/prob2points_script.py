@@ -11,13 +11,17 @@ from pacmap import prob2points
 
 
 def main(**kwargs):
-    # Load environment variables
-    load_dotenv()
-    data_path = os.getenv('DATA_PATH')
-
     # Load dataset configuration stored as dict in python file
     config_file = Path(kwargs['dataset_config_file'])
     config = SourceFileLoader(config_file.name, str(config_file)).load_module().config
+
+    # Get the data path
+    data_path = config.get('DATA_PATH', None)
+    if data_path is None:
+        load_dotenv()
+        data_path = os.getenv('DATA_PATH')
+    if data_path is None:
+        raise ValueError('DATA_PATH is not set in the config file or environment variables')
 
     input_path_probs = Path(data_path).joinpath(config['prob2points'][kwargs['config_key']]['input_path_probs'])
     input_path_masks = Path(data_path).joinpath(config['prob2points'][kwargs['config_key']]['input_path_masks'])
