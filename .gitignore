@@ -1,5 +1,6 @@
 # Data files
 data/
+models/
 *.tif
 *.csv
 *.npy
