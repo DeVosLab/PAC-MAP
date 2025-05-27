@@ -59,6 +59,7 @@ def main(**kwargs):
             crop_channel = channel_mapping[kwargs['crop_channel']]
         if img.ndim == 3:
             img = np.expand_dims(img, channel_dim)
+            crop_channel = 0
 
         # Rescale voxels
         if kwargs['verbose']:
