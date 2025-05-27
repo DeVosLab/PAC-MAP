@@ -17,23 +17,38 @@ Proximity Adjusted Centroid MAPping (PAC-MAP) is a novel and deep learning-based
 Proximity adjusted centroid probability maps, i.e., the target volumes for model training, are created from images with annotated nuclei centroids by positioning Gaussian kernels at the centroid position. Each Gaussian kernel’s amplitude and standard deviation is equal to the proximity to the nearest neighbor and the average nuclei radius estimated for the dataset, respectively. A neural network is then trained by performing weak supervised pretraining with annotations from a baseline method and finetuning on manual annotations. In inference, the trained model predicts proximity adjusted centroid probability maps from which candidate centroids are extracted as local maxima. Candidates are accepted or rejected depending on the correspondence between the observed and predicted proximity to other centroids.
 
 ## Installation
-1) Clone the repository and navigate into it. Note that the repository contains submodules, so make sure to clone it with the `--recurse-submodules` flag.
+**1) Clone the repository and navigate into it**
+
+Note that the repository contains submodules, so make sure to clone it with the `--recurse-submodules` flag.
+
 ```bash
 git clone --recurse-submodules https://github.com/DeVosLab/PAC-MAP.git 
 cd PAC-MAP
 ```
-
-2) Install the required packages using the following command:
+In case you already cloned the repository without the submodules, you can initialize and update them with the following commands:
 ```bash
-conda env create -f environment.yml
+git submodule update --init --recursive
 ```
 
-3) Activate the environment:
+**2) Install the required packages**
+
+We recommend using mamba instead of conda if available, as it provides faster dependency resolution. In case mamba is not installed, you can replace it with conda in the following commands.
+
+For linux and macos:
 ```bash
-conda activate pacmap_py3.9
+mamba env create -f environment.yml
+```
+For windows:
+```bash
+mamba env create -f environment_win.yml
 ```
 
-4) Create a `.env` file in the root of the repository with the following content:
+**3) Activate the environment**
+```bash
+mamba activate pacmap_py3.9
+```
+
+**4) Optionally: Create a `.env` file in the root of the repository with the following content:**
 ```
 DATA_PATH=/path/to/data
 MODELS_PATH=/path/to/models
@@ -41,6 +56,14 @@ MODELS_PATH=/path/to/models
 The `DATA_PATH` directory contains the data for each dataset, e.g., `dataset_name/train/...` 
 The `MODELS_PATH` directory contains the trained models and trained models.
 Data an model related paths will be interpreted relative to these predefined paths.
+
+This is useful if all your datasets and models are stored in the same directory. In case different datasets or models are stored in different directories, you can also set the `DATA_PATH` and `MODELS_PATH` as keys in the config files. The `DATA_PATH` and `MODELS_PATH` in the condig file will overrule the ones in the `.env` file. For example:
+```python 
+config = {
+  'DATA_PATH': '/path/to/data',
+  'MODELS_PATH': '/path/to/models',
+}
+```
 
 ## Usage
 The repository contains code for training and evaluating PAC-MAP models on different datasets. On a high level, the code is organized in the following way:
@@ -67,7 +90,7 @@ For instance, to divide preprocessed LN18-RED images into patches, run the follo
 python scripts/patch_creation_script.py -f configs/LN18-RED.py -k preprocessed
 ```
 `scripts/patch_creation_script.py` will then run `pacmap.patch_creation.py` with the arguments specified in `configs/LN18-RED.py`.
-The `-f` flag specifies the config file to use (`configs/LN18-RED.py`), and the `-k` flag specifies the key in the config file to use. The key is used to access the correct dictionary in the config file, since sometimes a script will be run on multiple times on different dataset types. For instance, to also create patches of binarized LN18-RED images, run the same command with a different key:
+The `-f` flag specifies the config file to use (`configs/LN18-RED.py`), and the `-k` flag specifies the key in the config file to use. The key is used to access the correct dictionary in the config file, since sometimes a script will be run multiple times on different dataset types. For instance, to also create patches of binarized LN18-RED images, run the same command with a different key:
 ```bash
 python scripts/patch_creation_script.py -f configs/LN18-RED.py -k binarized
 ```
@@ -80,7 +103,7 @@ For a new dataset named `dataset_name`
 4) Run the scripts in the `scripts` folder with the config file as argument (see [For provided datasets](#for-provided-datasets)).
 
 ## Data
-The original data used in the paper is available at [Zenodo](https://zenodo.org/records/11636385). It includes lightsheet images of spheroids of two different cell lines (LN18-RED and SH-SY5Y) and centroid annotations for model training and evaluation. In addition, weights of pretrained, finetuned and trained from scratch models are provided.
+The original data used in the paper is available at [Zenodo](https://zenodo.org/records/14138806). It includes lightsheet images of spheroids of two different cell lines (LN18-RED and SH-SY5Y) and centroid annotations for model training and evaluation. In addition, weights of pretrained, finetuned and trained from scratch models are provided.
 
 
 
