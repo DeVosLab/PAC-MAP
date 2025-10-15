@@ -1,0 +1,28 @@
+{
+    "description": "Proximity Adjusted Centroid MAPping (PAC-MAP) is a novel and deep learning-based method for nuclei detection in 3D light microscopy images of (dense) 3D cell systems with a nuclear-specific stain. It works by predicting proximity adjusted centroid probability maps in which nuclei locations are found as local maxima.",
+    "creators": [
+        {
+            "orcid": "0000-0002-3065-1395",
+            "affiliation": "Laboratory of Cell Biology and Histology, University of Antwerp, Belgium - µNEURO Research Centre of Excellence, University of Antwerp, Antwerp, Belgium",
+            "name": "Van De Looverbosch, Tim"
+        },
+        {
+            "orcid": "0000-0002-8964-4480",
+            "affiliation": "Laboratory of Cell Biology and Histology, University of Antwerp, Belgium - µNEURO Research Centre of Excellence, University of Antwerp, Antwerp, Belgium",
+            "name": "De Beuckeleer, Sarah"
+        },
+        {
+            "orcid": "0000-0003-0960-6781",
+            "affiliation": "Laboratory of Cell Biology and Histology, University of Antwerp, Belgium - Antwerp Centre for Advanced Microscopy, Belgium - µNEURO Research Centre of Excellence, University of Antwerp, Antwerp, Belgium",
+            "name": "De Vos, Winnok H."
+        }
+    ],
+    "related_identifiers": [
+        {
+            "scheme": "doi",
+            "identifier": "10.1016/j.compbiomed.2024.109561.",
+            "relation": "isSupplementTo",
+            "resource_type": "publication-article"
+        }
+    ]
+}
