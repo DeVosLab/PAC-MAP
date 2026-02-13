@@ -12,8 +12,7 @@ from .utils import rescale_voxels, normalize_per_channel, make_dict_json_compati
 def main(**kwargs):
     input_path = Path(kwargs['input_path'])
     output_path = Path(kwargs['output_path'])
-    if ~output_path.is_dir():
-        output_path.mkdir(parents=True, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     # Insert element to voxelsizes for channel dim
     current_voxelsize = list(kwargs['current_voxelsize'])
@@ -35,6 +34,8 @@ def main(**kwargs):
     filenames = sorted([f for f in input_path.iterdir() if \
         f.is_file() and f.suffix == kwargs['file_extension'] and \
         not f.stem.startswith('.')])
+    if kwargs['verbose']:
+        print(f'Found {len(filenames)} images.')
 
     # Loop over all files
     for filename in tqdm(filenames):
