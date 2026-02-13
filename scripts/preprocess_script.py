@@ -46,7 +46,7 @@ def main(**kwargs):
     args.padding = config['preprocess']['padding'] if 'padding' in config['preprocess'] else None
     args.pmins = config['preprocess']['pmins'] if 'pmins' in config['preprocess'] else args.pmins # overwrite default
     args.pmaxs = config['preprocess']['pmaxs'] if 'pmaxs' in config['preprocess'] else args.pmaxs # overwrite default
-
+    args.vebose = config['preprocess']['verbose'] if 'verbose' in config['preprocess'] else False
     preprocess.main(**vars(args))
 
 def parse_args():
